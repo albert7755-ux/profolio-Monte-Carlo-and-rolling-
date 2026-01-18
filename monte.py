@@ -22,9 +22,9 @@ if password != "5428":
 
 # --- 主程式開始 ---
 st.markdown("---")
-st.title('📈 智能投資組合優化器 (蒙地卡羅預測版)')
+st.title('📈 智能投資組合優化器 (VIP 專用版)')
 st.markdown("""
-此工具結合 **買入持有回測** 與 **蒙地卡羅模擬**，協助您評估投資組合的歷史表現與未來潛力。
+此工具採用 **買入持有 (Buy & Hold)** 策略，並結合 **蒙地卡羅模擬** 預測未來財富區間。
 """)
 
 # --- 2. 參數設定 ---
@@ -39,7 +39,8 @@ bench_input = st.sidebar.text_input(
     help="用於比較的市場基準 (僅用於年度報酬比較與走勢圖)。"
 )
 
-years = st.sidebar.slider('回測年數', 1, 20, 10)
+# 這裡設定的 years，現在也會用於蒙地卡羅模擬
+years = st.sidebar.slider('回測/預測年數', 1, 20, 10)
 risk_free_rate = 0.02 
 
 # --- 融資設定 ---
@@ -72,12 +73,17 @@ if opt_method == "🎯 鎖定目標報酬 (積極)":
     target_return = st.sidebar.slider("您想要的年化報酬率 (CAGR)", 1.0, 100.0, 15.0, 0.5) / 100
     st.sidebar.caption("系統將計算初始最佳權重，後續採「買入持有」策略。")
 
+# --- ★ 新增：投資金額設定 (移至側邊欄第5項) ---
+st.sidebar.markdown("---")
+st.sidebar.header("5. 投資金額 (Investment)")
+initial_investment = st.sidebar.number_input("初始本金 ($)", value=100000, step=10000)
+
 # --- 3. 核心邏輯 ---
 if st.sidebar.button('開始計算'):
     if len(user_tickers) < 2:
         st.error("請至少輸入兩檔標的。")
     else:
-        with st.spinner('正在進行 AI 運算 (歷史回測 + 未來模擬)...'):
+        with st.spinner('正在進行 AI 運算 (含蒙地卡羅模擬)...'):
             try:
                 # ==========================
                 # A. 數據準備
@@ -307,9 +313,11 @@ if st.sidebar.button('開始計算'):
                 # 融資視覺化 (智慧隱藏)
                 if use_margin:
                     st.markdown("---")
-                    st.subheader("💰 融資效益視覺化 (以投資 100 元為例)")
+                    st.subheader(f"💰 融資效益視覺化 (本金 ${initial_investment:,.0f} 為例)")
                     col_v1, col_v2 = st.columns(2)
-                    initial_own = 100
+                    
+                    # 使用側邊欄設定的本金
+                    initial_own = initial_investment
                     total_pos_initial = initial_own * leverage 
                     loan_amt = total_pos_initial - initial_own 
                     end_val_no_margin = initial_own * raw_port_val.iloc[-1]
@@ -317,10 +325,10 @@ if st.sidebar.button('開始計算'):
 
                     with col_v1:
                         fig_cap = go.Figure()
-                        fig_cap.add_trace(go.Bar(name='自有本金', x=['無融資'], y=[initial_own], text=[f"${initial_own}"], textposition='auto', marker_color='#2ca02c'))
-                        fig_cap.add_trace(go.Bar(name='自有本金', x=['有融資'], y=[initial_own], text=[f"${initial_own}"], textposition='auto', marker_color='#2ca02c', showlegend=False))
-                        fig_cap.add_trace(go.Bar(name='銀行借款', x=['有融資'], y=[loan_amt], text=[f"${loan_amt:.0f}"], textposition='auto', marker_color='#d62728'))
-                        fig_cap.update_layout(barmode='stack', title=f'初始本金比較 (放大 {leverage:.1f} 倍)', height=350, yaxis_title="金額 ($)", showlegend=True)
+                        fig_cap.add_trace(go.Bar(name='自有本金', x=['無融資'], y=[initial_own], text=[f"${initial_own:,.0f}"], textposition='auto', marker_color='#2ca02c'))
+                        fig_cap.add_trace(go.Bar(name='自有本金', x=['有融資'], y=[initial_own], text=[f"${initial_own:,.0f}"], textposition='auto', marker_color='#2ca02c', showlegend=False))
+                        fig_cap.add_trace(go.Bar(name='銀行借款', x=['有融資'], y=[loan_amt], text=[f"${loan_amt:,.0f}"], textposition='auto', marker_color='#d62728'))
+                        fig_cap.update_layout(barmode='stack', title=f'初始購買力 (放大 {leverage:.1f} 倍)', height=350, yaxis_title="金額 ($)", showlegend=True)
                         st.plotly_chart(fig_cap, use_container_width=True)
 
                     with col_v2:
@@ -402,117 +410,74 @@ if st.sidebar.button('開始計算'):
                 )
 
                 # ==========================================
-                # ★ 新增：蒙地卡羅模擬 (Monte Carlo Simulation)
+                # ★ 蒙地卡羅模擬 (連動側邊欄的 years 和 initial_investment)
                 # ==========================================
                 st.markdown("---")
                 with st.expander("🔮 未來財富預測 (蒙地卡羅模擬)", expanded=True):
                     
-                    mc_col1, mc_col2 = st.columns([1, 3])
+                    # 使用側邊欄的 years 作為模擬年數
+                    sim_years = years 
+                    num_simulations = 1000
                     
-                    with mc_col1:
-                        st.markdown("#### 模擬參數設定")
-                        initial_investment = st.number_input("初始投資金額 ($)", value=100000, step=10000)
-                        sim_years = st.slider("預測未來年數", 1, 20, 10)
-                        num_simulations = 1000 # 固定模擬次數
-                        
-                        st.info(f"系統將基於歷史平均年報酬 **{avg_annual_ret:.2%}** 與波動率 **{real_vol:.2%}** 進行 **{num_simulations}** 次隨機模擬。")
+                    st.info(f"系統將基於歷史平均年報酬 **{avg_annual_ret:.2%}** 與波動率 **{real_vol:.2%}**，模擬 **{sim_years}** 年後的資產變化。")
 
-                    with mc_col2:
-                        # 蒙地卡羅核心算法
-                        # 使用幾何布朗運動 (GBM) 模擬路徑
-                        # S_t = S_0 * exp((mu - 0.5 * sigma^2)*t + sigma * W_t)
-                        # 這裡的 mu 我們用算術平均報酬 (avg_annual_ret)，sigma 用年化波動 (real_vol)
+                    # 蒙地卡羅核心算法
+                    dt = 1/252
+                    days = int(sim_years * 252)
+                    
+                    mu = avg_annual_ret
+                    sigma = real_vol
+                    
+                    drift = (mu - 0.5 * sigma**2) * dt
+                    diffusion = sigma * np.sqrt(dt) * np.random.normal(0, 1, (days, num_simulations))
+                    
+                    daily_log_returns = drift + diffusion
+                    cum_log_returns = np.cumsum(daily_log_returns, axis=0)
+                    
+                    # 使用側邊欄的 initial_investment
+                    price_paths = initial_investment * np.exp(cum_log_returns)
+                    
+                    start_row = np.full((1, num_simulations), initial_investment)
+                    price_paths = np.vstack([start_row, price_paths])
+                    
+                    future_dates = [datetime.today() + timedelta(days=x*(365/252)) for x in range(days + 1)]
+                    
+                    percentile_10 = np.percentile(price_paths, 10, axis=1)
+                    percentile_50 = np.percentile(price_paths, 50, axis=1)
+                    percentile_90 = np.percentile(price_paths, 90, axis=1)
+                    
+                    fig_mc = go.Figure()
+                    for i in range(min(50, num_simulations)):
+                        fig_mc.add_trace(go.Scatter(x=future_dates, y=price_paths[:, i], mode='lines', line=dict(color='lightgrey', width=0.5), opacity=0.3, showlegend=False, hoverinfo='skip'))
                         
-                        dt = 1/252 # 每日
-                        days = int(sim_years * 252)
-                        
-                        # 產生隨機漫步
-                        # shape: (days, num_simulations)
-                        # np.random.normal(mean, std, size)
-                        
-                        # 每日回報的漂移項 (Drift) 和 擴散項 (Diffusion)
-                        # Drift = (mu - 0.5 * vol^2) * dt
-                        # Diffusion = vol * sqrt(dt) * Z
-                        
-                        mu = avg_annual_ret
-                        sigma = real_vol
-                        
-                        drift = (mu - 0.5 * sigma**2) * dt
-                        diffusion = sigma * np.sqrt(dt) * np.random.normal(0, 1, (days, num_simulations))
-                        
-                        daily_log_returns = drift + diffusion
-                        cum_log_returns = np.cumsum(daily_log_returns, axis=0)
-                        
-                        # 轉回價格路徑
-                        price_paths = initial_investment * np.exp(cum_log_returns)
-                        
-                        # 加上起點 (第0天)
-                        start_row = np.full((1, num_simulations), initial_investment)
-                        price_paths = np.vstack([start_row, price_paths])
-                        
-                        # 建立時間軸
-                        future_dates = [datetime.today() + timedelta(days=x*(365/252)) for x in range(days + 1)]
-                        
-                        # 計算分位數 (10%, 50%, 90%)
-                        percentile_10 = np.percentile(price_paths, 10, axis=1)
-                        percentile_50 = np.percentile(price_paths, 50, axis=1)
-                        percentile_90 = np.percentile(price_paths, 90, axis=1)
-                        
-                        # 繪圖
-                        fig_mc = go.Figure()
-                        
-                        # 畫出隨機 50 條路徑 (淡淡的背景)
-                        for i in range(min(50, num_simulations)):
-                            fig_mc.add_trace(go.Scatter(
-                                x=future_dates, y=price_paths[:, i],
-                                mode='lines', line=dict(color='lightgrey', width=0.5),
-                                opacity=0.3, showlegend=False, hoverinfo='skip'
-                            ))
-                            
-                        # 畫出 90% (樂觀)
-                        fig_mc.add_trace(go.Scatter(
-                            x=future_dates, y=percentile_90,
-                            mode='lines', name='樂觀情境 (90th%)',
-                            line=dict(color='#2ca02c', width=2)
-                        ))
-                        
-                        # 畫出 50% (中位數)
-                        fig_mc.add_trace(go.Scatter(
-                            x=future_dates, y=percentile_50,
-                            mode='lines', name='中位數預測 (Median)',
-                            line=dict(color='#1f77b4', width=3)
-                        ))
-                        
-                        # 畫出 10% (悲觀)
-                        fig_mc.add_trace(go.Scatter(
-                            x=future_dates, y=percentile_10,
-                            mode='lines', name='保守情境 (10th%)',
-                            line=dict(color='#d62728', width=2)
-                        ))
-                        
-                        fig_mc.update_layout(
-                            title=f'未來 {sim_years} 年資產模擬路徑 (Monte Carlo)',
-                            yaxis_title='資產價值 ($)',
-                            xaxis_title='未來日期',
-                            hovermode="x unified"
-                        )
-                        st.plotly_chart(fig_mc, use_container_width=True)
-                        
-                        # 統計結果展示
-                        end_val_90 = percentile_90[-1]
-                        end_val_50 = percentile_50[-1]
-                        end_val_10 = percentile_10[-1]
-                        
-                        st.markdown(f"""
-                        **模擬結果摘要 ({sim_years} 年後)：**
-                        * 🟢 **樂觀情況 (前10%幸運)**：資產可能成長至 **${end_val_90:,.0f}**
-                        * 🔵 **中位數 (最可能)**：資產預期約為 **${end_val_50:,.0f}**
-                        * 🔴 **保守情況 (後10%倒楣)**：資產可能僅剩 **${end_val_10:,.0f}**
-                        """)
+                    fig_mc.add_trace(go.Scatter(x=future_dates, y=percentile_90, mode='lines', name='樂觀情境 (90th%)', line=dict(color='#2ca02c', width=2)))
+                    fig_mc.add_trace(go.Scatter(x=future_dates, y=percentile_50, mode='lines', name='中位數預測 (Median)', line=dict(color='#1f77b4', width=3)))
+                    fig_mc.add_trace(go.Scatter(x=future_dates, y=percentile_10, mode='lines', name='保守情境 (10th%)', line=dict(color='#d62728', width=2)))
+                    
+                    fig_mc.update_layout(title=f'未來 {sim_years} 年資產模擬路徑', yaxis_title='資產價值 ($)', hovermode="x unified")
+                    st.plotly_chart(fig_mc, use_container_width=True)
+                    
+                    # ★ 新增：顯示金額與報酬率
+                    end_val_90 = percentile_90[-1]
+                    ret_90 = (end_val_90 - initial_investment) / initial_investment
+                    
+                    end_val_50 = percentile_50[-1]
+                    ret_50 = (end_val_50 - initial_investment) / initial_investment
+                    
+                    end_val_10 = percentile_10[-1]
+                    ret_10 = (end_val_10 - initial_investment) / initial_investment
+                    
+                    st.markdown(f"""
+                    **模擬結果摘要 ({sim_years} 年後)：**
+                    * 🟢 **樂觀 (90th%)**：**${end_val_90:,.0f}** (報酬率: **{ret_90:+.2%}**)
+                    * 🔵 **中位數 (50th%)**：**${end_val_50:,.0f}** (報酬率: **{ret_50:+.2%}**)
+                    * 🔴 **保守 (10th%)**：**${end_val_10:,.0f}** (報酬率: **{ret_10:+.2%}**)
+                    """)
 
             except Exception as e:
                 st.error(f"發生錯誤：{str(e)}")
 else:
+    # 這裡的文字只有在「密碼輸入正確」後才會顯示
     if password == "5428":
         st.info("密碼驗證成功！請在左側輸入股票代號並按下「開始計算」")
 
