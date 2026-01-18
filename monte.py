@@ -26,18 +26,18 @@ if not st.session_state.authenticated:
     if password:
         if password == "5428":
             st.session_state.authenticated = True
-            st.rerun()  # ★ 關鍵：密碼對了立刻重跑，讓輸入框消失
+            st.rerun()  # 密碼對了立刻重跑，隱藏輸入框
         else:
             st.error("⛔ 密碼錯誤，請重新輸入。")
     
-    st.stop()  # 沒登入前，程式碼執行到此為止
+    st.stop()
 
 # ==========================================
 # 🚀 主程式 (登入後才會執行到這裡)
 # ==========================================
 st.title('📈 智能投資組合優化器 (VIP 旗艦版)')
 st.markdown("""
-此工具採用 **買入持有 (Buy & Hold)** 策略，並結合 **蒙地卡羅模擬** 預測未來財富機率分佈。
+此工具採用 **買入持有 (Buy & Hold)** 策略，並結合 **蒙地卡羅模擬** 預測未來財富。
 """)
 
 # --- 2. 參數設定 ---
@@ -208,12 +208,22 @@ if st.sidebar.button('開始計算'):
                     margin_equity = position_value - debt - interest_cost
                     return margin_equity
 
+                # ★ 修正：計算平均報酬時，自動剔除當年度 (未滿一年)
                 def calculate_avg_annual_ret(series):
                     temp_series = series.copy()
                     if temp_series.index.tz is not None:
                         temp_series.index = temp_series.index.tz_localize(None)
                     ann_ret = temp_series.resample('Y').last().pct_change().dropna()
-                    return ann_ret.mean()
+                    
+                    # 獲取當前年份
+                    current_year = datetime.now().year
+                    # 如果索引中包含今年，則在計算平均時剔除
+                    if current_year in ann_ret.index.year:
+                        ann_ret_clean = ann_ret[ann_ret.index.year != current_year]
+                    else:
+                        ann_ret_clean = ann_ret
+                        
+                    return ann_ret_clean.mean()
 
                 def calculate_vol(series):
                     daily_ret = series.pct_change().dropna()
@@ -311,6 +321,7 @@ if st.sidebar.button('開始計算'):
                     st.plotly_chart(fig, use_container_width=True)
 
                     total_ret = margin_port_val.iloc[-1] - 1
+                    # ★ 呼叫修正後的函式
                     avg_annual_ret = calculate_avg_annual_ret(margin_port_val)
                     real_vol = calculate_vol(margin_port_val)
                     mdd = calculate_mdd(margin_port_val)
@@ -362,7 +373,14 @@ if st.sidebar.button('開始計算'):
                 
                 ann_prices = df_all.resample('Y').last()
                 ann_ret = ann_prices.pct_change().dropna()
-                avg_ret = ann_ret.mean()
+                
+                # ★ 修正：表格最上方的平均值，也要剔除今年
+                current_year_t = datetime.now().year
+                if current_year_t in ann_ret.index.year:
+                    avg_ret = ann_ret[ann_ret.index.year != current_year_t].mean()
+                else:
+                    avg_ret = ann_ret.mean()
+
                 ann_ret.index = ann_ret.index.astype(str)
                 df_avg = avg_ret.to_frame(name="🔥 平均報酬 (Avg)").T
                 final_annual_df = pd.concat([df_avg, ann_ret.sort_index(ascending=False)])
@@ -374,7 +392,7 @@ if st.sidebar.button('開始計算'):
                     height=table_height,
                     use_container_width=True
                 )
-                st.caption("註：最上方列為歷年平均報酬率。")
+                st.caption("註：最上方列為歷年平均報酬率 (已排除未滿一年之當年度數據)。")
 
                 # 滾動勝率
                 st.markdown("---")
@@ -420,7 +438,7 @@ if st.sidebar.button('開始計算'):
                 )
 
                 # ==========================================
-                # ★ 蒙地卡羅模擬 (雙圖表：路徑 + 分佈)
+                # ★ 蒙地卡羅模擬 (移除直方圖，只留路徑圖)
                 # ==========================================
                 st.markdown("---")
                 with st.expander("🔮 未來財富預測 (蒙地卡羅模擬)", expanded=True):
@@ -454,7 +472,7 @@ if st.sidebar.button('開始計算'):
                     percentile_50 = np.percentile(price_paths, 50, axis=1)
                     percentile_90 = np.percentile(price_paths, 90, axis=1)
                     
-                    # --- 圖表 1: 模擬路徑圖 ---
+                    # 圖表: 模擬路徑圖
                     fig_mc = go.Figure()
                     for i in range(min(50, num_simulations)):
                         fig_mc.add_trace(go.Scatter(x=future_dates, y=price_paths[:, i], mode='lines', line=dict(color='lightgrey', width=0.5), opacity=0.3, showlegend=False, hoverinfo='skip'))
@@ -463,45 +481,17 @@ if st.sidebar.button('開始計算'):
                     fig_mc.add_trace(go.Scatter(x=future_dates, y=percentile_50, mode='lines', name='中位數預測 (Median)', line=dict(color='#1f77b4', width=3)))
                     fig_mc.add_trace(go.Scatter(x=future_dates, y=percentile_10, mode='lines', name='保守情境 (10th%)', line=dict(color='#d62728', width=2)))
                     
-                    fig_mc.update_layout(title=f'模擬路徑預測 ({sim_years} 年)', yaxis_title='資產價值 ($)', hovermode="x unified", height=400)
+                    fig_mc.update_layout(title=f'模擬路徑預測 ({sim_years} 年)', yaxis_title='資產價值 ($)', hovermode="x unified", height=450)
                     st.plotly_chart(fig_mc, use_container_width=True)
 
-                    # --- ★ 新增 圖表 2: 資產結果分佈直方圖 ---
-                    final_values = price_paths[-1, :]
-                    fig_dist = go.Figure()
-
-                    # 繪製直方圖
-                    fig_dist.add_trace(go.Histogram(
-                        x=final_values, 
-                        nbinsx=50, 
-                        marker_color='#1f77b4',
-                        opacity=0.7,
-                        name='模擬結果分佈'
-                    ))
-
-                    # 加入垂直線 (10%, 50%, 90%)
-                    end_val_10 = percentile_10[-1]
-                    end_val_50 = percentile_50[-1]
+                    # 統計摘要 (年化報酬率 CAGR)
                     end_val_90 = percentile_90[-1]
-
-                    fig_dist.add_vline(x=end_val_10, line_width=2, line_dash="dash", line_color="#d62728", annotation_text="保守(10%)", annotation_position="top left")
-                    fig_dist.add_vline(x=end_val_50, line_width=3, line_color="white", annotation_text="中位數", annotation_position="top right")
-                    fig_dist.add_vline(x=end_val_90, line_width=2, line_dash="dash", line_color="#2ca02c", annotation_text="樂觀(90%)", annotation_position="top right")
-
-                    fig_dist.update_layout(
-                        title=f'資產結果機率分佈圖 ({sim_years} 年後)',
-                        xaxis_title='最終資產價值 ($)',
-                        yaxis_title='出現頻率',
-                        showlegend=False,
-                        height=350,
-                        bargap=0.1
-                    )
-                    st.plotly_chart(fig_dist, use_container_width=True)
-                    
-                    # 統計摘要 (改為年化報酬率 CAGR)
-                    # CAGR 公式: (End/Start)^(1/n) - 1
                     cagr_90 = (end_val_90 / initial_investment) ** (1/sim_years) - 1
+                    
+                    end_val_50 = percentile_50[-1]
                     cagr_50 = (end_val_50 / initial_investment) ** (1/sim_years) - 1
+                    
+                    end_val_10 = percentile_10[-1]
                     cagr_10 = (end_val_10 / initial_investment) ** (1/sim_years) - 1
                     
                     st.markdown(f"""
