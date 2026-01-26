@@ -31,9 +31,9 @@ if not st.session_state.authenticated:
 # ==========================================
 # 🚀 主程式
 # ==========================================
-st.title('📈 智能投資組合優化器 (混合策略終極版)')
+st.title('📈 智能投資組合優化器 (勝率視覺化版)')
 st.markdown("""
-本系統結合 **「數學優化 (Solver)」** 與 **「蒙地卡羅隨機搜尋 (Monte Carlo Search)」**，讓您建構更穩健的混合投資組合。
+本系統結合 **「數學優化」** 與 **「蒙地卡羅模擬」**，並透過 **「持有期間勝率分析」** 驗證長期投資價值。
 """)
 
 # --- 2. 參數設定 ---
@@ -146,7 +146,7 @@ if st.sidebar.button('開始計算'):
                     return margin_equity
 
                 # ==========================
-                # B1. 策略一：最大夏普 (Math Solver)
+                # B1. 策略一：最大夏普 (Solver)
                 # ==========================
                 def neg_sharpe(w, m_ret, cov, rf):
                     ret = np.sum(m_ret * w)
@@ -165,11 +165,11 @@ if st.sidebar.button('開始計算'):
                 vol_sharpe = np.sqrt(np.dot(w_sharpe.T, np.dot(cov_matrix, w_sharpe)))
 
                 # ==========================
-                # B2. 策略二：蒙地卡羅搜尋 (Monte Carlo Search)
+                # B2. 策略二：蒙地卡羅 (MC)
                 # ==========================
                 num_sims = 3000
                 rand_w = np.random.random((num_sims, num_assets))
-                rand_w = rand_w / rand_w.sum(axis=1)[:, None] # 歸一化
+                rand_w = rand_w / rand_w.sum(axis=1)[:, None]
 
                 port_ret = np.dot(rand_w, mean_returns)
                 port_vol = np.zeros(num_sims)
@@ -177,7 +177,6 @@ if st.sidebar.button('開始計算'):
                     port_vol[i] = np.sqrt(np.dot(rand_w[i].T, np.dot(cov_matrix, rand_w[i])))
                 
                 port_sharpe = (port_ret - risk_free_rate) / port_vol
-                
                 best_mc_idx = port_sharpe.argmax()
                 w_mc = rand_w[best_mc_idx]
                 ret_mc = port_ret[best_mc_idx]
@@ -187,21 +186,17 @@ if st.sidebar.button('開始計算'):
                 # B3. 混合策略 (Blending)
                 # ==========================
                 w_final = (w_mc * mc_weight_ratio) + (w_sharpe * sharpe_weight_ratio)
-                
                 ret_final = np.sum(mean_returns * w_final)
                 vol_final = np.sqrt(np.dot(w_final.T, np.dot(cov_matrix, w_final)))
                 
                 st.success(f"混合運算完成！(MC: {mc_weight_ratio:.0%} / Solver: {sharpe_weight_ratio:.0%})")
 
                 # ==========================
-                # C. 顯示區塊 (★ 版面重構：上排分析結果，下排效率前緣)
+                # C. 顯示區塊 (版面重構)
                 # ==========================
-                
                 st.subheader("📊 策略分析結果")
                 
-                # --- 第一排：權重表 (左) + 預期數據 (右) ---
                 col_top1, col_top2 = st.columns(2)
-                
                 with col_top1:
                     st.markdown("#### 1. 策略權重比較")
                     df_comp = pd.DataFrame({
@@ -213,67 +208,41 @@ if st.sidebar.button('開始計算'):
                     st.dataframe(df_comp, hide_index=True, use_container_width=True)
 
                 with col_top2:
-                    st.markdown("#### 2. 預期數據比較")
+                    st.markdown("#### 2. 預期數據比較 (再平衡模式)")
                     st.info(f"""
-                    **🏆 最終混合投組**
+                    **🏆 最終混合投組 (數學預期)**
                     * 預期年化報酬：**{ret_final:.2%}**
                     * 預期年化波動：**{vol_final:.2%}**
+                    * *註：此為固定權重再平衡之數學期望值*
                     """)
                     st.markdown("---")
                     col_in1, col_in2 = st.columns(2)
                     col_in1.write(f"**🎲 MC 最佳解**")
                     col_in1.caption(f"報酬: {ret_mc:.1%} | 波動: {vol_mc:.1%}")
-                    
                     col_in2.write(f"**🚀 最大夏普解**")
                     col_in2.caption(f"報酬: {ret_sharpe:.1%} | 波動: {vol_sharpe:.1%}")
 
-                # --- 第二排：效率前緣圖 (全寬) ---
                 st.markdown("---")
-                st.subheader("☁️ 效率前緣與策略落點 (Efficient Frontier)")
-                
+                st.subheader("☁️ 效率前緣與策略落點")
                 fig_ef = go.Figure()
-                
-                # 3000 隨機點
-                fig_ef.add_trace(go.Scatter(
-                    x=port_vol, y=port_ret, mode='markers',
-                    marker=dict(color=port_sharpe, colorscale='Viridis', size=5, showscale=True, colorbar=dict(title="Sharpe")),
-                    name='隨機投組', text=[f"Sharpe: {s:.2f}" for s in port_sharpe], hoverinfo='text'
-                ))
-                
-                # 標記點
-                fig_ef.add_trace(go.Scatter(
-                    x=[vol_mc], y=[ret_mc], mode='markers+text',
-                    marker=dict(color='orange', size=15, symbol='star'),
-                    name='MC 最佳解', text=['MC Best'], textposition="top center"
-                ))
-                
-                fig_ef.add_trace(go.Scatter(
-                    x=[vol_sharpe], y=[ret_sharpe], mode='markers+text',
-                    marker=dict(color='red', size=15, symbol='diamond'),
-                    name='最大夏普解', text=['Max Sharpe'], textposition="bottom center"
-                ))
-                
-                fig_ef.add_trace(go.Scatter(
-                    x=[vol_final], y=[ret_final], mode='markers+text',
-                    marker=dict(color='blue', size=18, symbol='circle'),
-                    name='最終混合投組', text=['Final Mix'], textposition="middle right"
-                ))
-                
+                fig_ef.add_trace(go.Scatter(x=port_vol, y=port_ret, mode='markers', marker=dict(color=port_sharpe, colorscale='Viridis', size=5), name='隨機投組'))
+                fig_ef.add_trace(go.Scatter(x=[vol_mc], y=[ret_mc], mode='markers+text', marker=dict(color='orange', size=15, symbol='star'), name='MC 最佳解', text=['MC'], textposition="top center"))
+                fig_ef.add_trace(go.Scatter(x=[vol_sharpe], y=[ret_sharpe], mode='markers+text', marker=dict(color='red', size=15, symbol='diamond'), name='最大夏普', text=['Sharpe'], textposition="bottom center"))
+                fig_ef.add_trace(go.Scatter(x=[vol_final], y=[ret_final], mode='markers+text', marker=dict(color='blue', size=18, symbol='circle'), name='最終混合', text=['Final'], textposition="middle right"))
                 fig_ef.update_layout(xaxis_title="年化波動度 (Risk)", yaxis_title="年化報酬率 (Return)", height=500)
                 st.plotly_chart(fig_ef, use_container_width=True)
 
                 # ==========================
-                # D. 回測與模擬
+                # D. 回測 (Buy & Hold)
                 # ==========================
-                
-                # 計算混合投組淨值
                 raw_port_val = (normalized_prices * w_final).sum(axis=1)
                 margin_port_val = calculate_margin_equity(raw_port_val, leverage, loan_ratio, margin_rate)
                 margin_port_val.name = "🏆 混合策略投組"
 
-                # 基礎回測圖表
                 st.markdown("---")
-                st.subheader("📈 資產成長回測 (基於混合權重)")
+                st.subheader("📈 資產成長回測 (買入持有模式)")
+                st.caption("註：買入持有模式下，強勢股權重會隨時間增加，故歷史報酬通常高於固定權重的數學預期。")
+                
                 fig_bt = px.line(margin_port_val, title='混合策略 vs Benchmark')
                 fig_bt.update_traces(line=dict(color='blue', width=3))
                 if normalized_bench is not None:
@@ -282,7 +251,6 @@ if st.sidebar.button('開始計算'):
                     fig_bt.add_trace(go.Scatter(x=aligned_bench.index, y=aligned_bench, mode='lines', name=f'基準 ({bench_input})', line=dict(color='gray', width=2, dash='dash')))
                 st.plotly_chart(fig_bt, use_container_width=True)
 
-                # 績效指標
                 def calculate_avg_annual_ret(series):
                     temp = series.copy()
                     if temp.index.tz is not None: temp.index = temp.index.tz_localize(None)
@@ -307,7 +275,6 @@ if st.sidebar.button('開始計算'):
                 c3.metric("年化波動 (歷史)", f"{vol_hist:.2%}")
                 c4.metric("最大回撤", f"{mdd:.2%}")
 
-                # 融資視覺化
                 if use_margin:
                     st.markdown("---")
                     st.subheader(f"💰 融資效益視覺化 (本金 ${initial_investment:,.0f})")
@@ -316,7 +283,6 @@ if st.sidebar.button('開始計算'):
                     loan = own * (leverage - 1)
                     end_no_marg = own * raw_port_val.iloc[-1]
                     end_marg = own * margin_port_val.iloc[-1]
-                    
                     with v1:
                         fg = go.Figure()
                         fg.add_trace(go.Bar(name='自有', x=['無融資'], y=[own], marker_color='#2ca02c'))
@@ -330,12 +296,64 @@ if st.sidebar.button('開始計算'):
                         fg2.update_layout(title='期末淨值比較', height=300)
                         st.plotly_chart(fg2, use_container_width=True)
 
+                # ==========================================
+                # ★ 新增：持有期間 vs 正報酬機率圖
+                # ==========================================
+                st.markdown("---")
+                st.subheader("⏳ 長期持有勝率分析 (Holding Period vs Win Rate)")
+                st.caption("此圖顯示：隨著持有時間拉長，獲得正報酬的機率變化。")
+
+                # 計算 1~10 年的勝率
+                win_rates = []
+                years_range = range(1, 11)
+                
+                for y in years_range:
+                    window = int(y * 252)
+                    if len(margin_port_val) > window:
+                        roll_ret = margin_port_val.pct_change(window).dropna()
+                        win_rate = (roll_ret > 0).mean()
+                        win_rates.append(win_rate)
+                    else:
+                        win_rates.append(0)
+
+                # 繪製長條圖
+                fig_win = go.Figure()
+                fig_win.add_trace(go.Bar(
+                    x=[f"{y}年" for y in years_range],
+                    y=win_rates,
+                    text=[f"{w:.1%}" for w in win_rates],
+                    textposition='auto',
+                    marker_color='#2ca02c'  # 綠色代表勝率
+                ))
+                
+                fig_win.update_layout(
+                    title="持有年數 vs 正報酬機率",
+                    xaxis_title="持有期間",
+                    yaxis_title="正報酬機率 (%)",
+                    yaxis=dict(tickformat=".0%"),
+                    height=400
+                )
+                st.plotly_chart(fig_win, use_container_width=True)
+
+                # 原有的滾動表格 (保留)
+                with st.expander("查看詳細滾動數據表"):
+                    rolling_periods = {'3個月': 63, '6個月': 126, '1年': 252, '3年': 756, '5年': 1260, '10年': 2520}
+                    r_rows = []
+                    def get_r_stats(s, n):
+                        r = {'標的': n}
+                        for k, v in rolling_periods.items():
+                            if len(s)>v: r[k] = (s.pct_change(v).dropna()>0).mean()
+                            else: r[k] = np.nan
+                        return r
+                    r_rows.append(get_r_stats(margin_port_val, "🏆 混合投組"))
+                    for t in tickers: r_rows.append(get_r_stats(df_close[t], t))
+                    st.dataframe(pd.DataFrame(r_rows).style.format({k:'{:.0%}' for k in rolling_periods}).background_gradient(cmap='RdYlGn', vmin=0, vmax=1))
+
                 # 未來預測 (喇叭圖)
                 st.markdown("---")
                 with st.expander("🔮 未來情境模擬：蒙地卡羅壓力測試 (Trumpet Chart)", expanded=True):
                     sim_years = years
                     num_sims_fut = 1000
-                    
                     mu_fut = avg_ret_hist
                     sigma_fut = vol_hist
                     
@@ -343,19 +361,15 @@ if st.sidebar.button('開始計算'):
 
                     dt = 1/252
                     days = int(sim_years * 252)
-                    
                     drift = (mu_fut - 0.5 * sigma_fut**2) * dt
                     diffusion = sigma_fut * np.sqrt(dt) * np.random.normal(0, 1, (days, num_sims_fut))
                     daily_log_ret = drift + diffusion
                     cum_log_ret = np.cumsum(daily_log_ret, axis=0)
-                    
                     price_paths = initial_investment * np.exp(cum_log_ret)
                     start_row = np.full((1, num_sims_fut), initial_investment)
                     price_paths = np.vstack([start_row, price_paths])
-                    
                     dates_fut = [datetime.today() + timedelta(days=x*(365/252)) for x in range(days + 1)]
                     
-                    # 95% / 5%
                     p05 = np.percentile(price_paths, 5, axis=1)
                     p50 = np.percentile(price_paths, 50, axis=1)
                     p95 = np.percentile(price_paths, 95, axis=1)
