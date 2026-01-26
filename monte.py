@@ -133,7 +133,7 @@ if st.sidebar.button('開始計算'):
                 cov_matrix = daily_ret.cov() * 252
                 mean_returns = daily_ret.mean() * 252
                 
-                # ★ 關鍵修正：補上 normalized_prices 定義
+                # 正規化價格 (用於買入持有)
                 normalized_prices = df_close / df_close.iloc[0]
                 
                 num_assets = len(tickers)
@@ -213,7 +213,8 @@ if st.sidebar.button('開始計算'):
                         '🚀 最大夏普': [f"{x:.1%}" for x in w_sharpe],
                         '🏆 最終混合': [f"{x:.1%}" for x in w_final]
                     })
-                    st.table(df_comp)
+                    # ★ 修正處：改用 st.dataframe 並隱藏 index，解決換行問題
+                    st.dataframe(df_comp, hide_index=True, use_container_width=True)
                     
                     st.markdown("#### 預期數據比較")
                     st.write(f"**🎲 MC策略**: 報酬 {ret_mc:.1%}, 波動 {vol_mc:.1%}")
@@ -325,6 +326,7 @@ if st.sidebar.button('開始計算'):
                     sim_years = years
                     num_sims_fut = 1000
                     
+                    # 使用「歷史回測出來的平均報酬與波動」來進行未來模擬
                     mu_fut = avg_ret_hist
                     sigma_fut = vol_hist
                     
@@ -344,6 +346,7 @@ if st.sidebar.button('開始計算'):
                     
                     dates_fut = [datetime.today() + timedelta(days=x*(365/252)) for x in range(days + 1)]
                     
+                    # 95% / 5%
                     p05 = np.percentile(price_paths, 5, axis=1)
                     p50 = np.percentile(price_paths, 50, axis=1)
                     p95 = np.percentile(price_paths, 95, axis=1)
