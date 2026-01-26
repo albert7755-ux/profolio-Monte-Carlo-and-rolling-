@@ -132,10 +132,7 @@ if st.sidebar.button('開始計算'):
                 daily_ret = df_close.pct_change().dropna()
                 cov_matrix = daily_ret.cov() * 252
                 mean_returns = daily_ret.mean() * 252
-                
-                # 正規化價格 (用於買入持有)
                 normalized_prices = df_close / df_close.iloc[0]
-                
                 num_assets = len(tickers)
 
                 # 函數定義
@@ -171,12 +168,9 @@ if st.sidebar.button('開始計算'):
                 # B2. 策略二：蒙地卡羅搜尋 (Monte Carlo Search)
                 # ==========================
                 num_sims = 3000
-                
-                # 向量化生成隨機權重
                 rand_w = np.random.random((num_sims, num_assets))
                 rand_w = rand_w / rand_w.sum(axis=1)[:, None] # 歸一化
 
-                # 矩陣運算
                 port_ret = np.dot(rand_w, mean_returns)
                 port_vol = np.zeros(num_sims)
                 for i in range(num_sims):
@@ -184,7 +178,6 @@ if st.sidebar.button('開始計算'):
                 
                 port_sharpe = (port_ret - risk_free_rate) / port_vol
                 
-                # 找出 MC 中夏普最高的
                 best_mc_idx = port_sharpe.argmax()
                 w_mc = rand_w[best_mc_idx]
                 ret_mc = port_ret[best_mc_idx]
@@ -201,56 +194,73 @@ if st.sidebar.button('開始計算'):
                 st.success(f"混合運算完成！(MC: {mc_weight_ratio:.0%} / Solver: {sharpe_weight_ratio:.0%})")
 
                 # ==========================
-                # C. 顯示區塊
+                # C. 顯示區塊 (★ 版面重構：上排分析結果，下排效率前緣)
                 # ==========================
-                col_c1, col_c2 = st.columns([1, 2])
                 
-                with col_c1:
-                    st.subheader("📊 策略權重比較")
+                st.subheader("📊 策略分析結果")
+                
+                # --- 第一排：權重表 (左) + 預期數據 (右) ---
+                col_top1, col_top2 = st.columns(2)
+                
+                with col_top1:
+                    st.markdown("#### 1. 策略權重比較")
                     df_comp = pd.DataFrame({
                         '標的': tickers,
                         '🎲 MC最佳解': [f"{x:.1%}" for x in w_mc],
                         '🚀 最大夏普': [f"{x:.1%}" for x in w_sharpe],
                         '🏆 最終混合': [f"{x:.1%}" for x in w_final]
                     })
-                    # ★ 修正處：改用 st.dataframe 並隱藏 index，解決換行問題
                     st.dataframe(df_comp, hide_index=True, use_container_width=True)
-                    
-                    st.markdown("#### 預期數據比較")
-                    st.write(f"**🎲 MC策略**: 報酬 {ret_mc:.1%}, 波動 {vol_mc:.1%}")
-                    st.write(f"**🚀 MaxSharpe**: 報酬 {ret_sharpe:.1%}, 波動 {vol_sharpe:.1%}")
-                    st.info(f"**🏆 混合投組**: 報酬 {ret_final:.1%}, 波動 {vol_final:.1%}")
 
-                with col_c2:
-                    st.subheader("☁️ 效率前緣與策略落點")
-                    fig_ef = go.Figure()
+                with col_top2:
+                    st.markdown("#### 2. 預期數據比較")
+                    st.info(f"""
+                    **🏆 最終混合投組**
+                    * 預期年化報酬：**{ret_final:.2%}**
+                    * 預期年化波動：**{vol_final:.2%}**
+                    """)
+                    st.markdown("---")
+                    col_in1, col_in2 = st.columns(2)
+                    col_in1.write(f"**🎲 MC 最佳解**")
+                    col_in1.caption(f"報酬: {ret_mc:.1%} | 波動: {vol_mc:.1%}")
                     
-                    fig_ef.add_trace(go.Scatter(
-                        x=port_vol, y=port_ret, mode='markers',
-                        marker=dict(color=port_sharpe, colorscale='Viridis', size=5, showscale=True, colorbar=dict(title="Sharpe")),
-                        name='隨機投組', text=[f"Sharpe: {s:.2f}" for s in port_sharpe], hoverinfo='text'
-                    ))
-                    
-                    fig_ef.add_trace(go.Scatter(
-                        x=[vol_mc], y=[ret_mc], mode='markers+text',
-                        marker=dict(color='orange', size=15, symbol='star'),
-                        name='MC 最佳解', text=['MC Best'], textposition="top center"
-                    ))
-                    
-                    fig_ef.add_trace(go.Scatter(
-                        x=[vol_sharpe], y=[ret_sharpe], mode='markers+text',
-                        marker=dict(color='red', size=15, symbol='diamond'),
-                        name='最大夏普解', text=['Max Sharpe'], textposition="bottom center"
-                    ))
-                    
-                    fig_ef.add_trace(go.Scatter(
-                        x=[vol_final], y=[ret_final], mode='markers+text',
-                        marker=dict(color='blue', size=18, symbol='circle'),
-                        name='最終混合投組', text=['Final Mix'], textposition="middle right"
-                    ))
-                    
-                    fig_ef.update_layout(xaxis_title="年化波動度 (Risk)", yaxis_title="年化報酬率 (Return)", height=450)
-                    st.plotly_chart(fig_ef, use_container_width=True)
+                    col_in2.write(f"**🚀 最大夏普解**")
+                    col_in2.caption(f"報酬: {ret_sharpe:.1%} | 波動: {vol_sharpe:.1%}")
+
+                # --- 第二排：效率前緣圖 (全寬) ---
+                st.markdown("---")
+                st.subheader("☁️ 效率前緣與策略落點 (Efficient Frontier)")
+                
+                fig_ef = go.Figure()
+                
+                # 3000 隨機點
+                fig_ef.add_trace(go.Scatter(
+                    x=port_vol, y=port_ret, mode='markers',
+                    marker=dict(color=port_sharpe, colorscale='Viridis', size=5, showscale=True, colorbar=dict(title="Sharpe")),
+                    name='隨機投組', text=[f"Sharpe: {s:.2f}" for s in port_sharpe], hoverinfo='text'
+                ))
+                
+                # 標記點
+                fig_ef.add_trace(go.Scatter(
+                    x=[vol_mc], y=[ret_mc], mode='markers+text',
+                    marker=dict(color='orange', size=15, symbol='star'),
+                    name='MC 最佳解', text=['MC Best'], textposition="top center"
+                ))
+                
+                fig_ef.add_trace(go.Scatter(
+                    x=[vol_sharpe], y=[ret_sharpe], mode='markers+text',
+                    marker=dict(color='red', size=15, symbol='diamond'),
+                    name='最大夏普解', text=['Max Sharpe'], textposition="bottom center"
+                ))
+                
+                fig_ef.add_trace(go.Scatter(
+                    x=[vol_final], y=[ret_final], mode='markers+text',
+                    marker=dict(color='blue', size=18, symbol='circle'),
+                    name='最終混合投組', text=['Final Mix'], textposition="middle right"
+                ))
+                
+                fig_ef.update_layout(xaxis_title="年化波動度 (Risk)", yaxis_title="年化報酬率 (Return)", height=500)
+                st.plotly_chart(fig_ef, use_container_width=True)
 
                 # ==========================
                 # D. 回測與模擬
@@ -326,7 +336,6 @@ if st.sidebar.button('開始計算'):
                     sim_years = years
                     num_sims_fut = 1000
                     
-                    # 使用「歷史回測出來的平均報酬與波動」來進行未來模擬
                     mu_fut = avg_ret_hist
                     sigma_fut = vol_hist
                     
