@@ -61,7 +61,7 @@ if use_margin:
 else:
     loan_ratio, margin_rate, leverage = 0.0, 0.0, 1.0
 
-# --- ★ 新增：策略混合器 (Strategy Blender) ---
+# --- 4. 策略混合器 ---
 st.sidebar.markdown("---")
 st.sidebar.header("4. 策略混合權重 (Strategy Mix)")
 st.sidebar.caption("調整兩種演算法在最終投組中的佔比")
@@ -69,7 +69,7 @@ mc_weight_ratio = st.sidebar.slider("蒙地卡羅 (MC) 佔比", 0.0, 1.0, 0.4, 0
 sharpe_weight_ratio = 1.0 - mc_weight_ratio
 st.sidebar.text(f"配置：MC {mc_weight_ratio:.0%} + MaxSharpe {sharpe_weight_ratio:.0%}")
 
-# --- 投資金額 ---
+# --- 5. 投資金額 ---
 st.sidebar.markdown("---")
 st.sidebar.header("5. 投資金額")
 initial_investment = st.sidebar.number_input("初始本金 ($)", value=100000, step=10000)
@@ -132,7 +132,21 @@ if st.sidebar.button('開始計算'):
                 daily_ret = df_close.pct_change().dropna()
                 cov_matrix = daily_ret.cov() * 252
                 mean_returns = daily_ret.mean() * 252
+                
+                # ★ 關鍵修正：補上 normalized_prices 定義
+                normalized_prices = df_close / df_close.iloc[0]
+                
                 num_assets = len(tickers)
+
+                # 函數定義
+                def calculate_margin_equity(raw_portfolio_value, leverage, loan_ratio, annual_rate):
+                    if leverage == 1: return raw_portfolio_value
+                    debt = leverage - 1
+                    daily_rate = annual_rate / 365 
+                    position_value = raw_portfolio_value * leverage
+                    interest_cost = pd.Series(np.arange(len(raw_portfolio_value)) * debt * daily_rate, index=raw_portfolio_value.index)
+                    margin_equity = position_value - debt - interest_cost
+                    return margin_equity
 
                 # ==========================
                 # B1. 策略一：最大夏普 (Math Solver)
@@ -150,7 +164,6 @@ if st.sidebar.button('開始計算'):
                                       method='SLSQP', bounds=bounds, constraints=constraints)
                 w_sharpe = res_sharpe.x
                 
-                # 計算 Solver 的指標
                 ret_sharpe = np.sum(mean_returns * w_sharpe)
                 vol_sharpe = np.sqrt(np.dot(w_sharpe.T, np.dot(cov_matrix, w_sharpe)))
 
@@ -158,17 +171,13 @@ if st.sidebar.button('開始計算'):
                 # B2. 策略二：蒙地卡羅搜尋 (Monte Carlo Search)
                 # ==========================
                 num_sims = 3000
-                all_weights = np.zeros((num_sims, num_assets))
-                sim_results = np.zeros((3, num_sims)) # 0:Ret, 1:Vol, 2:Sharpe
-
+                
                 # 向量化生成隨機權重
                 rand_w = np.random.random((num_sims, num_assets))
                 rand_w = rand_w / rand_w.sum(axis=1)[:, None] # 歸一化
-                all_weights = rand_w
 
-                # 矩陣運算加速
+                # 矩陣運算
                 port_ret = np.dot(rand_w, mean_returns)
-                # Vol需要迴圈或高階矩陣運算，這裡用簡單迴圈比較穩
                 port_vol = np.zeros(num_sims)
                 for i in range(num_sims):
                     port_vol[i] = np.sqrt(np.dot(rand_w[i].T, np.dot(cov_matrix, rand_w[i])))
@@ -177,7 +186,7 @@ if st.sidebar.button('開始計算'):
                 
                 # 找出 MC 中夏普最高的
                 best_mc_idx = port_sharpe.argmax()
-                w_mc = all_weights[best_mc_idx]
+                w_mc = rand_w[best_mc_idx]
                 ret_mc = port_ret[best_mc_idx]
                 vol_mc = port_vol[best_mc_idx]
 
@@ -186,14 +195,13 @@ if st.sidebar.button('開始計算'):
                 # ==========================
                 w_final = (w_mc * mc_weight_ratio) + (w_sharpe * sharpe_weight_ratio)
                 
-                # 計算混合後的預期指標
                 ret_final = np.sum(mean_returns * w_final)
                 vol_final = np.sqrt(np.dot(w_final.T, np.dot(cov_matrix, w_final)))
                 
                 st.success(f"混合運算完成！(MC: {mc_weight_ratio:.0%} / Solver: {sharpe_weight_ratio:.0%})")
 
                 # ==========================
-                # C. 顯示：策略比較與效率前緣
+                # C. 顯示區塊
                 # ==========================
                 col_c1, col_c2 = st.columns([1, 2])
                 
@@ -213,32 +221,27 @@ if st.sidebar.button('開始計算'):
                     st.info(f"**🏆 混合投組**: 報酬 {ret_final:.1%}, 波動 {vol_final:.1%}")
 
                 with col_c2:
-                    st.subheader("☁️ 效率前緣與策略落點 (Efficient Frontier)")
-                    # 繪製散佈圖
+                    st.subheader("☁️ 效率前緣與策略落點")
                     fig_ef = go.Figure()
                     
-                    # 3000 個隨機點
                     fig_ef.add_trace(go.Scatter(
                         x=port_vol, y=port_ret, mode='markers',
                         marker=dict(color=port_sharpe, colorscale='Viridis', size=5, showscale=True, colorbar=dict(title="Sharpe")),
                         name='隨機投組', text=[f"Sharpe: {s:.2f}" for s in port_sharpe], hoverinfo='text'
                     ))
                     
-                    # 標記 MC 最佳點
                     fig_ef.add_trace(go.Scatter(
                         x=[vol_mc], y=[ret_mc], mode='markers+text',
                         marker=dict(color='orange', size=15, symbol='star'),
                         name='MC 最佳解', text=['MC Best'], textposition="top center"
                     ))
                     
-                    # 標記 Solver 最佳點
                     fig_ef.add_trace(go.Scatter(
                         x=[vol_sharpe], y=[ret_sharpe], mode='markers+text',
                         marker=dict(color='red', size=15, symbol='diamond'),
                         name='最大夏普解', text=['Max Sharpe'], textposition="bottom center"
                     ))
                     
-                    # 標記 混合 最佳點
                     fig_ef.add_trace(go.Scatter(
                         x=[vol_final], y=[ret_final], mode='markers+text',
                         marker=dict(color='blue', size=18, symbol='circle'),
@@ -249,10 +252,10 @@ if st.sidebar.button('開始計算'):
                     st.plotly_chart(fig_ef, use_container_width=True)
 
                 # ==========================
-                # D. 回測與模擬 (使用 w_final)
+                # D. 回測與模擬
                 # ==========================
                 
-                # 計算混合投組的歷史淨值 (買入持有)
+                # 計算混合投組淨值
                 raw_port_val = (normalized_prices * w_final).sum(axis=1)
                 margin_port_val = calculate_margin_equity(raw_port_val, leverage, loan_ratio, margin_rate)
                 margin_port_val.name = "🏆 混合策略投組"
@@ -322,7 +325,6 @@ if st.sidebar.button('開始計算'):
                     sim_years = years
                     num_sims_fut = 1000
                     
-                    # 使用「歷史回測出來的平均報酬與波動」來進行未來模擬
                     mu_fut = avg_ret_hist
                     sigma_fut = vol_hist
                     
@@ -342,7 +344,6 @@ if st.sidebar.button('開始計算'):
                     
                     dates_fut = [datetime.today() + timedelta(days=x*(365/252)) for x in range(days + 1)]
                     
-                    # 95% / 5%
                     p05 = np.percentile(price_paths, 5, axis=1)
                     p50 = np.percentile(price_paths, 50, axis=1)
                     p95 = np.percentile(price_paths, 95, axis=1)
