@@ -215,9 +215,7 @@ if st.sidebar.button('開始計算'):
                         temp_series.index = temp_series.index.tz_localize(None)
                     ann_ret = temp_series.resample('Y').last().pct_change().dropna()
                     
-                    # 獲取當前年份
                     current_year = datetime.now().year
-                    # 如果索引中包含今年，則在計算平均時剔除
                     if current_year in ann_ret.index.year:
                         ann_ret_clean = ann_ret[ann_ret.index.year != current_year]
                     else:
@@ -438,10 +436,10 @@ if st.sidebar.button('開始計算'):
                 )
 
                 # ==========================================
-                # ★ 蒙地卡羅模擬 (移除直方圖，只留路徑圖)
+                # ★ 蒙地卡羅模擬 (喇叭圖 + 95/5 區間)
                 # ==========================================
                 st.markdown("---")
-                with st.expander("🔮 未來財富預測 (蒙地卡羅模擬)", expanded=True):
+                with st.expander("🔮 未來情境模擬：蒙地卡羅壓力測試", expanded=True):
                     
                     sim_years = years 
                     num_simulations = 1000
@@ -451,7 +449,6 @@ if st.sidebar.button('開始計算'):
                     # 核心算法
                     dt = 1/252
                     days = int(sim_years * 252)
-                    
                     mu = avg_annual_ret
                     sigma = real_vol
                     
@@ -467,38 +464,70 @@ if st.sidebar.button('開始計算'):
                     
                     future_dates = [datetime.today() + timedelta(days=x*(365/252)) for x in range(days + 1)]
                     
-                    # 計算關鍵分位數
-                    percentile_10 = np.percentile(price_paths, 10, axis=1)
-                    percentile_50 = np.percentile(price_paths, 50, axis=1)
-                    percentile_90 = np.percentile(price_paths, 90, axis=1)
+                    # 計算關鍵分位數 (改為 95% / 5%)
+                    percentile_05 = np.percentile(price_paths, 5, axis=1) # 悲觀 (5%)
+                    percentile_50 = np.percentile(price_paths, 50, axis=1) # 中性
+                    percentile_95 = np.percentile(price_paths, 95, axis=1) # 樂觀 (95%)
                     
-                    # 圖表: 模擬路徑圖
+                    # 繪製喇叭圖 (Trumpet Chart)
                     fig_mc = go.Figure()
-                    for i in range(min(50, num_simulations)):
-                        fig_mc.add_trace(go.Scatter(x=future_dates, y=price_paths[:, i], mode='lines', line=dict(color='lightgrey', width=0.5), opacity=0.3, showlegend=False, hoverinfo='skip'))
                     
-                    fig_mc.add_trace(go.Scatter(x=future_dates, y=percentile_90, mode='lines', name='樂觀情境 (90th%)', line=dict(color='#2ca02c', width=2)))
-                    fig_mc.add_trace(go.Scatter(x=future_dates, y=percentile_50, mode='lines', name='中位數預測 (Median)', line=dict(color='#1f77b4', width=3)))
-                    fig_mc.add_trace(go.Scatter(x=future_dates, y=percentile_10, mode='lines', name='保守情境 (10th%)', line=dict(color='#d62728', width=2)))
+                    # 1. 背景隨機路徑 (絲線效果)
+                    for i in range(min(30, num_simulations)):
+                        fig_mc.add_trace(go.Scatter(
+                            x=future_dates, y=price_paths[:, i], 
+                            mode='lines', line=dict(color='lightgrey', width=0.5), 
+                            opacity=0.3, showlegend=False, hoverinfo='skip'
+                        ))
                     
-                    fig_mc.update_layout(title=f'模擬路徑預測 ({sim_years} 年)', yaxis_title='資產價值 ($)', hovermode="x unified", height=450)
+                    # 2. 悲觀情境 (5%) - 紅色底線
+                    fig_mc.add_trace(go.Scatter(
+                        x=future_dates, y=percentile_05, 
+                        mode='lines', name='悲觀情境 (5% VaR)', 
+                        line=dict(color='#d62728', width=1)
+                    ))
+                    
+                    # 3. 風險區間 (5%~50%) - 填入淡紅色
+                    fig_mc.add_trace(go.Scatter(
+                        x=future_dates, y=percentile_50, 
+                        mode='lines', name='中性情境 (Base Case)',
+                        line=dict(color='#1f77b4', width=2),
+                        fill='tonexty', # 填滿到上一條線 (也就是 5%)
+                        fillcolor='rgba(214, 39, 40, 0.1)' # 淡紅色
+                    ))
+                    
+                    # 4. 樂觀區間 (50%~95%) - 填入淡綠色
+                    fig_mc.add_trace(go.Scatter(
+                        x=future_dates, y=percentile_95, 
+                        mode='lines', name='樂觀情境 (95th%)',
+                        line=dict(color='#2ca02c', width=1),
+                        fill='tonexty', # 填滿到上一條線 (也就是 50%)
+                        fillcolor='rgba(44, 160, 44, 0.1)' # 淡綠色
+                    ))
+                    
+                    fig_mc.update_layout(
+                        title=f'未來 {sim_years} 年資產情境模擬 (Trumpet Chart)', 
+                        yaxis_title='資產價值 ($)', 
+                        hovermode="x unified", 
+                        height=450
+                    )
                     st.plotly_chart(fig_mc, use_container_width=True)
 
                     # 統計摘要 (年化報酬率 CAGR)
-                    end_val_90 = percentile_90[-1]
-                    cagr_90 = (end_val_90 / initial_investment) ** (1/sim_years) - 1
+                    end_val_95 = percentile_95[-1]
+                    cagr_95 = (end_val_95 / initial_investment) ** (1/sim_years) - 1
                     
                     end_val_50 = percentile_50[-1]
                     cagr_50 = (end_val_50 / initial_investment) ** (1/sim_years) - 1
                     
-                    end_val_10 = percentile_10[-1]
-                    cagr_10 = (end_val_10 / initial_investment) ** (1/sim_years) - 1
+                    end_val_05 = percentile_05[-1]
+                    cagr_05 = (end_val_05 / initial_investment) ** (1/sim_years) - 1
                     
                     st.markdown(f"""
                     **模擬結果統計 ({sim_years} 年後，{num_simulations} 次平行宇宙)：**
-                    * 🟢 **樂觀情況 (前10%幸運)**：資產成長至 **${end_val_90:,.0f}** (年化: **{cagr_90:.2%}**)
-                    * 🔵 **中位數 (最可能)**：資產預期為 **${end_val_50:,.0f}** (年化: **{cagr_50:.2%}**)
-                    * 🔴 **保守情況 (後10%倒楣)**：資產可能為 **${end_val_10:,.0f}** (年化: **{cagr_10:.2%}**)
+                    * 🟢 **樂觀情況 (前5%幸運)**：資產成長至 **${end_val_95:,.0f}** (年化: **{cagr_95:.2%}**)
+                    * 🔵 **中性情境 (Base Case)**：資產預期為 **${end_val_50:,.0f}** (年化: **{cagr_50:.2%}**)
+                    * 🔴 **悲觀情況 (後5%倒楣)**：資產可能為 **${end_val_05:,.0f}** (年化: **{cagr_05:.2%}**)
                     """)
 
             except Exception as e:
