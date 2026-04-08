@@ -251,10 +251,11 @@ if st.sidebar.button('開始計算'):
                     fig_bt.add_trace(go.Scatter(x=aligned_bench.index, y=aligned_bench, mode='lines', name=f'基準 ({bench_input})', line=dict(color='gray', width=2, dash='dash')))
                 st.plotly_chart(fig_bt, use_container_width=True)
 
+                # ★ 修復：將 resample('Y') 改為 resample('YE')
                 def calculate_avg_annual_ret(series):
                     temp = series.copy()
                     if temp.index.tz is not None: temp.index = temp.index.tz_localize(None)
-                    ann = temp.resample('Y').last().pct_change().dropna()
+                    ann = temp.resample('YE').last().pct_change().dropna()
                     curr_yr = datetime.now().year
                     if curr_yr in ann.index.year: ann = ann[ann.index.year != curr_yr]
                     return ann.mean()
@@ -297,13 +298,12 @@ if st.sidebar.button('開始計算'):
                         st.plotly_chart(fg2, use_container_width=True)
 
                 # ==========================================
-                # ★ 新增：持有期間 vs 正報酬機率圖
+                # 持有期間 vs 正報酬機率圖
                 # ==========================================
                 st.markdown("---")
                 st.subheader("⏳ 長期持有勝率分析 (Holding Period vs Win Rate)")
                 st.caption("此圖顯示：隨著持有時間拉長，獲得正報酬的機率變化。")
 
-                # 計算 1~10 年的勝率
                 win_rates = []
                 years_range = range(1, 11)
                 
@@ -316,14 +316,13 @@ if st.sidebar.button('開始計算'):
                     else:
                         win_rates.append(0)
 
-                # 繪製長條圖
                 fig_win = go.Figure()
                 fig_win.add_trace(go.Bar(
                     x=[f"{y}年" for y in years_range],
                     y=win_rates,
                     text=[f"{w:.1%}" for w in win_rates],
                     textposition='auto',
-                    marker_color='#2ca02c'  # 綠色代表勝率
+                    marker_color='#2ca02c'
                 ))
                 
                 fig_win.update_layout(
@@ -335,7 +334,6 @@ if st.sidebar.button('開始計算'):
                 )
                 st.plotly_chart(fig_win, use_container_width=True)
 
-                # 原有的滾動表格 (保留)
                 with st.expander("查看詳細滾動數據表"):
                     rolling_periods = {'3個月': 63, '6個月': 126, '1年': 252, '3年': 756, '5年': 1260, '10年': 2520}
                     r_rows = []
