@@ -9,7 +9,6 @@ import plotly.graph_objects as go
 
 # --- 1. 設定網頁標題與 Session State ---
 st.set_page_config(page_title="智能投資組合優化器", layout="wide")
-
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -43,9 +42,8 @@ user_tickers = tickers_input.upper().split()
 
 st.sidebar.header('2. 基準指數')
 bench_input = st.sidebar.text_input('基準代號', 'SPY:60 AGG:40')
-
 years = st.sidebar.slider('回測/預測年數', 1, 20, 10)
-risk_free_rate = 0.02 
+risk_free_rate = 0.02
 
 # --- 融資設定 ---
 st.sidebar.markdown("---")
@@ -85,13 +83,13 @@ if st.sidebar.button('開始計算'):
                 # A. 數據準備
                 # ==========================
                 end_date = datetime.today()
-                start_date = end_date - timedelta(days=365*years + 365) 
-                
+                start_date = end_date - timedelta(days=365*years + 365)
+
                 data = yf.download(user_tickers, start=start_date, end=end_date, auto_adjust=True)
                 if 'Close' in data.columns: df_close = data['Close']
                 else: df_close = data
                 df_close.dropna(inplace=True)
-                
+
                 if df_close.empty: st.stop()
                 if df_close.index.tz is not None: df_close.index = df_close.index.tz_localize(None)
                 tickers = df_close.columns.tolist()
@@ -102,7 +100,7 @@ if st.sidebar.button('開始計算'):
                     items = bench_input.strip().split()
                     for item in items:
                         if ':' in item: parts = item.split(':'); ticker = parts[0].upper(); weight = float(parts[1])
-                        else: ticker = item.upper(); weight = 100.0 
+                        else: ticker = item.upper(); weight = 100.0
                         bench_config.append({'ticker': ticker, 'weight': weight})
                     total_bw = sum([x['weight'] for x in bench_config]) or 1
                     for x in bench_config: x['weight'] /= total_bw
@@ -115,7 +113,7 @@ if st.sidebar.button('開始計算'):
                 else: df_bench = bench_data
                 if isinstance(df_bench, pd.Series): df_bench = df_bench.to_frame(name=bench_tickers[0])
                 if df_bench.index.tz is not None: df_bench.index = df_bench.index.tz_localize(None)
-                
+
                 common_index = df_close.index.intersection(df_bench.index)
                 df_close = df_close.loc[common_index]
                 df_bench = df_bench.loc[common_index]
@@ -139,7 +137,7 @@ if st.sidebar.button('開始計算'):
                 def calculate_margin_equity(raw_portfolio_value, leverage, loan_ratio, annual_rate):
                     if leverage == 1: return raw_portfolio_value
                     debt = leverage - 1
-                    daily_rate = annual_rate / 365 
+                    daily_rate = annual_rate / 365
                     position_value = raw_portfolio_value * leverage
                     interest_cost = pd.Series(np.arange(len(raw_portfolio_value)) * debt * daily_rate, index=raw_portfolio_value.index)
                     margin_equity = position_value - debt - interest_cost
@@ -152,15 +150,15 @@ if st.sidebar.button('開始計算'):
                     ret = np.sum(m_ret * w)
                     vol = np.sqrt(np.dot(w.T, np.dot(cov, w)))
                     return -(ret - rf) / vol
-                
+
                 constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
                 bounds = tuple((0, 1) for _ in range(num_assets))
                 init_guess = [1/num_assets] * num_assets
-                
+
                 res_sharpe = minimize(neg_sharpe, init_guess, args=(mean_returns, cov_matrix, risk_free_rate),
                                       method='SLSQP', bounds=bounds, constraints=constraints)
                 w_sharpe = res_sharpe.x
-                
+
                 ret_sharpe = np.sum(mean_returns * w_sharpe)
                 vol_sharpe = np.sqrt(np.dot(w_sharpe.T, np.dot(cov_matrix, w_sharpe)))
 
@@ -170,12 +168,11 @@ if st.sidebar.button('開始計算'):
                 num_sims = 3000
                 rand_w = np.random.random((num_sims, num_assets))
                 rand_w = rand_w / rand_w.sum(axis=1)[:, None]
-
                 port_ret = np.dot(rand_w, mean_returns)
                 port_vol = np.zeros(num_sims)
                 for i in range(num_sims):
                     port_vol[i] = np.sqrt(np.dot(rand_w[i].T, np.dot(cov_matrix, rand_w[i])))
-                
+
                 port_sharpe = (port_ret - risk_free_rate) / port_vol
                 best_mc_idx = port_sharpe.argmax()
                 w_mc = rand_w[best_mc_idx]
@@ -188,14 +185,14 @@ if st.sidebar.button('開始計算'):
                 w_final = (w_mc * mc_weight_ratio) + (w_sharpe * sharpe_weight_ratio)
                 ret_final = np.sum(mean_returns * w_final)
                 vol_final = np.sqrt(np.dot(w_final.T, np.dot(cov_matrix, w_final)))
-                
+
                 st.success(f"混合運算完成！(MC: {mc_weight_ratio:.0%} / Solver: {sharpe_weight_ratio:.0%})")
 
                 # ==========================
                 # C. 顯示區塊 (版面重構)
                 # ==========================
                 st.subheader("📊 策略分析結果")
-                
+
                 col_top1, col_top2 = st.columns(2)
                 with col_top1:
                     st.markdown("#### 1. 策略權重比較")
@@ -206,7 +203,6 @@ if st.sidebar.button('開始計算'):
                         '🏆 最終混合': [f"{x:.1%}" for x in w_final]
                     })
                     st.dataframe(df_comp, hide_index=True, use_container_width=True)
-
                 with col_top2:
                     st.markdown("#### 2. 預期數據比較 (再平衡模式)")
                     st.info(f"""
@@ -242,7 +238,7 @@ if st.sidebar.button('開始計算'):
                 st.markdown("---")
                 st.subheader("📈 資產成長回測 (買入持有模式)")
                 st.caption("註：買入持有模式下，強勢股權重會隨時間增加，故歷史報酬通常高於固定權重的數學預期。")
-                
+
                 fig_bt = px.line(margin_port_val, title='混合策略 vs Benchmark')
                 fig_bt.update_traces(line=dict(color='blue', width=3))
                 if normalized_bench is not None:
@@ -251,7 +247,6 @@ if st.sidebar.button('開始計算'):
                     fig_bt.add_trace(go.Scatter(x=aligned_bench.index, y=aligned_bench, mode='lines', name=f'基準 ({bench_input})', line=dict(color='gray', width=2, dash='dash')))
                 st.plotly_chart(fig_bt, use_container_width=True)
 
-                # ★ 修復：將 resample('Y') 改為 resample('YE')
                 def calculate_avg_annual_ret(series):
                     temp = series.copy()
                     if temp.index.tz is not None: temp.index = temp.index.tz_localize(None)
@@ -270,11 +265,40 @@ if st.sidebar.button('開始計算'):
                 vol_hist = margin_port_val.pct_change().dropna().std() * np.sqrt(252)
                 mdd = calculate_mdd(margin_port_val)
 
-                c1, c2, c3, c4 = st.columns(4)
+                # ★ 新增：Sharpe Ratio 計算
+                sharpe_hist = (avg_ret_hist - risk_free_rate) / vol_hist
+
+                # ★ 修改：5個 metric 卡片（新增 Sharpe Ratio）
+                c1, c2, c3, c4, c5 = st.columns(5)
                 c1.metric("總報酬率", f"{total_ret:.2%}")
                 c2.metric("平均年報酬 (歷史)", f"{avg_ret_hist:.2%}")
                 c3.metric("年化波動 (歷史)", f"{vol_hist:.2%}")
-                c4.metric("最大回撤", f"{mdd:.2%}")
+                c4.metric("最大回撤 (MDD)", f"{mdd:.2%}")
+                c5.metric("Sharpe Ratio", f"{sharpe_hist:.2f}")
+
+                # ★ 新增：MDD 視覺化走勢圖
+                st.markdown("#### 📉 最大回撤走勢圖")
+                roll_max = margin_port_val.cummax()
+                drawdown = (margin_port_val - roll_max) / roll_max
+
+                fig_mdd = go.Figure()
+                fig_mdd.add_trace(go.Scatter(
+                    x=drawdown.index,
+                    y=drawdown,
+                    fill='tozeroy',
+                    mode='lines',
+                    line=dict(color='#d62728', width=1),
+                    fillcolor='rgba(214, 39, 40, 0.2)',
+                    name='回撤幅度'
+                ))
+                fig_mdd.update_layout(
+                    yaxis=dict(tickformat=".0%"),
+                    yaxis_title="回撤幅度",
+                    xaxis_title="日期",
+                    height=300,
+                    hovermode="x unified"
+                )
+                st.plotly_chart(fig_mdd, use_container_width=True)
 
                 if use_margin:
                     st.markdown("---")
@@ -306,7 +330,7 @@ if st.sidebar.button('開始計算'):
 
                 win_rates = []
                 years_range = range(1, 11)
-                
+
                 for y in years_range:
                     window = int(y * 252)
                     if len(margin_port_val) > window:
@@ -324,7 +348,6 @@ if st.sidebar.button('開始計算'):
                     textposition='auto',
                     marker_color='#2ca02c'
                 ))
-                
                 fig_win.update_layout(
                     title="持有年數 vs 正報酬機率",
                     xaxis_title="持有期間",
@@ -354,9 +377,8 @@ if st.sidebar.button('開始計算'):
                     num_sims_fut = 1000
                     mu_fut = avg_ret_hist
                     sigma_fut = vol_hist
-                    
-                    st.info(f"模擬參數：年化報酬 **{mu_fut:.2%}**, 波動率 **{sigma_fut:.2%}**, 模擬 **{sim_years}** 年。")
 
+                    st.info(f"模擬參數：年化報酬 **{mu_fut:.2%}**, 波動率 **{sigma_fut:.2%}**, 模擬 **{sim_years}** 年。")
                     dt = 1/252
                     days = int(sim_years * 252)
                     drift = (mu_fut - 0.5 * sigma_fut**2) * dt
@@ -367,27 +389,27 @@ if st.sidebar.button('開始計算'):
                     start_row = np.full((1, num_sims_fut), initial_investment)
                     price_paths = np.vstack([start_row, price_paths])
                     dates_fut = [datetime.today() + timedelta(days=x*(365/252)) for x in range(days + 1)]
-                    
+
                     p05 = np.percentile(price_paths, 5, axis=1)
                     p50 = np.percentile(price_paths, 50, axis=1)
                     p95 = np.percentile(price_paths, 95, axis=1)
-                    
+
                     fig_mc = go.Figure()
                     for i in range(min(30, num_sims_fut)):
                         fig_mc.add_trace(go.Scatter(x=dates_fut, y=price_paths[:, i], mode='lines', line=dict(color='lightgrey', width=0.5), opacity=0.3, showlegend=False, hoverinfo='skip'))
-                    
+
                     fig_mc.add_trace(go.Scatter(x=dates_fut, y=p05, mode='lines', name='悲觀 (5%)', line=dict(color='#d62728', width=1)))
                     fig_mc.add_trace(go.Scatter(x=dates_fut, y=p50, mode='lines', name='中性 (Base)', line=dict(color='#1f77b4', width=2), fill='tonexty', fillcolor='rgba(214, 39, 40, 0.1)'))
                     fig_mc.add_trace(go.Scatter(x=dates_fut, y=p95, mode='lines', name='樂觀 (95%)', line=dict(color='#2ca02c', width=1), fill='tonexty', fillcolor='rgba(44, 160, 44, 0.1)'))
-                    
+
                     fig_mc.update_layout(title='未來資產情境模擬', yaxis_title='資產價值 ($)', height=450, hovermode="x unified")
                     st.plotly_chart(fig_mc, use_container_width=True)
-                    
+
                     e95, e50, e05 = p95[-1], p50[-1], p05[-1]
                     c95 = (e95/initial_investment)**(1/sim_years)-1
                     c50 = (e50/initial_investment)**(1/sim_years)-1
                     c05 = (e05/initial_investment)**(1/sim_years)-1
-                    
+
                     st.markdown(f"""
                     **統計摘要 ({sim_years}年後)：**
                     * 🟢 **樂觀 (95%)**：${e95:,.0f} (年化 {c95:.2%})
